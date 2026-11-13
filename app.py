@@ -1384,7 +1384,7 @@ def render_about():
         "check. Read the decision, then the list of checks that were not run.\n\n"
         "**Incident Diagnostician.** Choose the areas that seem to be misbehaving. Answer the questions "
         "for each area, and skip any area you cannot check. Read the likely cause and the next step.\n\n"
-        "**Common scenarios.**"
+        "**Common scenarios.** Preset requests and incident patterns, so users can see the typical outcome or likely diagnoses at once without entering the next answer."
     )
 
     st.markdown("### How to read a result")
