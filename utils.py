@@ -2,42 +2,45 @@ MODE_1_DEFAULTS = {
     "account_active": True,
     "account_not_locked": True,
     "within_business_hours": True,
-    "account_type": "standard",        
+    "account_type": "standard",
     "mfa_enabled": True,
-    "mfa_assurance_level": "AAL2",  
+    "mfa_assurance_level": "AAL2",
 
-    "resource_sensitivity": "low",    
+    "resource_sensitivity": "low",
     "requested_privilege_level": "view",
-    "target_zone": "internal",           
+    "target_zone": "internal",
     "requester_role_not_authorized_for_high_sensitivity": False,
     "requested_privileges_exceed_minimum": False,
     "task_can_be_completed_with_lower_privilege": False,
 
-    "secret_requires_approval": False,  
+    "secret_requires_approval": False,
     "requester_role_not_in_approval_group": False,
     "no_active_approval": False,
-    "request_type": "standard",          
+    "request_type": "standard",
     "required_approvers": 1,
 
-    "session_type": "standard",          
+    "session_type": "standard",
     "session_recording_enabled": True,
     "audit_logging_enabled": True,
 
     "secret_has_quantumlock_enabled": False,
     "rpc_rotation_enabled": False,
     "heartbeat_enabled": False,
-    "secret_supports_checkout": False,   
+    "secret_supports_checkout": False,
     "expiry_date_set": True,
-    "secret_has_rotation_policy": False, 
+    "secret_has_rotation_policy": False,
     "rpc_enabled": False,
     "last_rotation_status": "success",
 
     "days_since_last_rotation": 0,
     "rotation_interval": 30,
 
+    "checkout_duration_hours": 0,
+
     "quantumlock_group_user_count": 2,
     "group_member_account_deleted": False,
     "no_recovery_path_available": False,
+    "quantumlock_password_forgotten": False,
 
     "requester_role_owns_target_secret": False,
     "approver_role_same_group": False,
@@ -74,6 +77,7 @@ MODE_2_DEFAULTS = {
     "sql_browser_service_running": True,
     "named_pipes_enabled": True,
     "sql_nocount_property": "off",
+    "sql_response_time_ms": 100,
 
     "sql_server_collation": "SQL_Latin1_General_CP1_CI_AS",
     "database_collation": "SQL_Latin1_General_CP1_CI_AS",
@@ -84,10 +88,11 @@ MODE_2_DEFAULTS = {
     "service_account_not_in_db_owner_role": False,
 
     "secret_server_app_version": "12.1.000002",
-    "sql_database_schema_version": "12.1.000002",  
+    "sql_database_schema_version": "12.1.000002",
     "app_vm_reverted_without_db_revert": False,
     "last_upgrade_attempt": "success",
     "db_owner_role_granted": True,
+    "maintenance_mode_enabled": True,
 
     "source_vm_running": True,
     "destination_vm_running": True,
@@ -111,10 +116,12 @@ MODE_2_DEFAULTS = {
     "ad_sync_returned_zero_users": False,
     "would_disable_all_users_in_domain": False,
 
+    "heartbeat_enabled": True,
     "heartbeat_status": "Success",
     "last_heartbeat_status": "Success",
     "target_machine_reachable": True,
     "credentials_valid_on_target": True,
+    "heartbeat_intermittent": False,
 
     "target_hostname_resolves_to_unexpected_ip": False,
     "secret_stored_hostname": "esxi01.lab.local",
@@ -134,11 +141,12 @@ MODE_2_DEFAULTS = {
     "sql_mirror_partner_unreachable": False,
 }
 
+
 MODE_1_PRESETS = [
     {
         "name": "Standard Request",
         "description": "All checks pass — request should be approved",
-        "facts": {},  
+        "facts": {},
     },
     {
         "name": "Privileged Account, No MFA",
@@ -182,6 +190,33 @@ MODE_1_PRESETS = [
             "dual_control_not_enabled": True,
         },
     },
+    {
+        "name": "Insider Threat Pattern",
+        "description": "Privileged account without MFA and with a separation-of-duties violation — R4 and R10 fire, R14a and R14b follow, decision is DENY",
+        "facts": {
+            "account_type": "privileged",
+            "mfa_enabled": False,
+            "mfa_assurance_level": "none",
+            "resource_sensitivity": "high",
+            "requested_privilege_level": "admin",
+            "session_type": "privileged",
+            "requester_role_owns_target_secret": True,
+            "approver_role_same_group": True,
+            "no_independent_approver": True,
+            "dual_control_not_enabled": True,
+        },
+    },
+    {
+        "name": "QuantumLock Data Loss Cascade",
+        "description": "Single-member QuantumLock group whose account was deleted, and the password was forgotten — R5b fires, R5c follows, decision is DENY",
+        "facts": {
+            "secret_has_quantumlock_enabled": True,
+            "quantumlock_group_user_count": 1,
+            "group_member_account_deleted": True,
+            "no_recovery_path_available": True,
+            "quantumlock_password_forgotten": True,
+        },
+    },
 ]
 
 
@@ -189,7 +224,7 @@ MODE_2_PRESETS = [
     {
         "name": "All Systems Operational",
         "description": "All infrastructure healthy — no incidents detected",
-        "facts": {},  
+        "facts": {},
     },
     {
         "name": "App/DB Version Mismatch",
@@ -253,7 +288,41 @@ MODE_2_PRESETS = [
             "sql_tcp_enabled": True,
         },
     },
+    {
+        "name": "Cascading Upgrade Failure",
+        "description": "Failed upgrade left app and database versions mismatched, maintenance mode off, and AD bind failing — R19 → R19a → R22c → R31",
+        "facts": {
+            "secret_server_app_version": "12.0.000020",
+            "sql_database_schema_version": "12.1.000002",
+            "app_vm_reverted_without_db_revert": True,
+            "last_upgrade_attempt": "failed",
+            "db_owner_role_granted": True,
+            "maintenance_mode_enabled": False,
+            "ad_sync_secret_credentials_invalid": True,
+            "domain_controller_reachable": True,
+            "ad_domain_active_flag": True,
+            "ad_credential_caching_enabled": False,
+        },
+    },
+    {
+        "name": "Systemic Infrastructure Degradation",
+        "description": "SQL responding slowly with intermittent heartbeats, and ESXi heartbeat failing — R17c (possible) + R23d → R29 (possible, capped at medium)",
+        "facts": {
+            "sql_response_time_ms": 850,
+            "heartbeat_intermittent": True,
+            "heartbeat_enabled": True,
+            "heartbeat_status": "Failed",
+            "last_heartbeat_status": "Failed",
+            "target_machine_reachable": True,
+            "credentials_valid_on_target": False,
+            "target_system_type": "ESXi",
+            "target_os": "ESXi",
+            "root_credential_invalid": True,
+            "esxi_host_unreachable": False,
+        },
+    },
 ]
+
 
 FACT_LABELS = {
     "account_active": "Account is active",
@@ -286,9 +355,11 @@ FACT_LABELS = {
     "last_rotation_status": "Last rotation status",
     "days_since_last_rotation": "Days since last rotation",
     "rotation_interval": "Rotation interval (days)",
+    "checkout_duration_hours": "Checkout duration (hours)",
     "quantumlock_group_user_count": "QuantumLock group user count",
     "group_member_account_deleted": "Group member account deleted",
     "no_recovery_path_available": "No recovery path available",
+    "quantumlock_password_forgotten": "QuantumLock password forgotten",
     "requester_role_owns_target_secret": "Requester role owns target secret",
     "approver_role_same_group": "Approver in same group",
     "no_independent_approver": "No independent approver",
@@ -317,6 +388,7 @@ FACT_LABELS = {
     "sql_browser_service_running": "SQL Browser service running",
     "named_pipes_enabled": "Named pipes enabled",
     "sql_nocount_property": "SQL NOCOUNT property",
+    "sql_response_time_ms": "SQL response time (ms)",
     "sql_server_collation": "SQL Server collation",
     "database_collation": "Database collation",
     "sql_auth_mode": "SQL auth mode",
@@ -328,6 +400,7 @@ FACT_LABELS = {
     "app_vm_reverted_without_db_revert": "App VM reverted without DB revert",
     "last_upgrade_attempt": "Last upgrade attempt",
     "db_owner_role_granted": "db_owner role granted",
+    "maintenance_mode_enabled": "Maintenance mode enabled",
     "source_vm_running": "Source VM running",
     "destination_vm_running": "Destination VM running",
     "destination_vm_ip_reachable_from_source": "Destination VM reachable from source",
@@ -350,6 +423,7 @@ FACT_LABELS = {
     "last_heartbeat_status": "Last heartbeat status",
     "target_machine_reachable": "Target machine reachable",
     "credentials_valid_on_target": "Credentials valid on target",
+    "heartbeat_intermittent": "Heartbeat intermittent",
     "target_hostname_resolves_to_unexpected_ip": "Target hostname resolves to unexpected IP",
     "secret_stored_hostname": "Secret stored hostname",
     "resolved_ip": "Resolved IP",
@@ -392,10 +466,11 @@ MODE_1_SECTIONS = [
     ]),
     ("Credential Lifecycle", [
         "days_since_last_rotation", "rotation_interval",
+        "checkout_duration_hours",
     ]),
     ("QuantumLock Risk", [
         "quantumlock_group_user_count", "group_member_account_deleted",
-        "no_recovery_path_available",
+        "no_recovery_path_available", "quantumlock_password_forgotten",
     ]),
     ("Separation of Duties", [
         "requester_role_owns_target_secret", "approver_role_same_group",
@@ -424,6 +499,7 @@ MODE_2_SECTIONS = [
     ("SQL Server", [
         "sql_server_service_running", "port_1433_reachable", "sql_tcp_enabled",
         "sql_browser_service_running", "named_pipes_enabled", "sql_nocount_property",
+        "sql_response_time_ms",
         "sql_server_collation", "database_collation", "sql_auth_mode",
         "sql_account_password_policy_enforced",
         "sql_login_for_service_account_missing", "service_account_not_in_db_owner_role",
@@ -431,7 +507,7 @@ MODE_2_SECTIONS = [
     ("App/DB Versioning", [
         "secret_server_app_version", "sql_database_schema_version",
         "app_vm_reverted_without_db_revert", "last_upgrade_attempt",
-        "db_owner_role_granted",
+        "db_owner_role_granted", "maintenance_mode_enabled",
     ]),
     ("VM Network", [
         "source_vm_running", "destination_vm_running",
@@ -450,8 +526,9 @@ MODE_2_SECTIONS = [
         "would_disable_all_users_in_domain",
     ]),
     ("Heartbeat", [
-        "heartbeat_status", "last_heartbeat_status", "target_machine_reachable",
-        "credentials_valid_on_target", "target_hostname_resolves_to_unexpected_ip",
+        "heartbeat_enabled", "heartbeat_status", "last_heartbeat_status",
+        "target_machine_reachable", "credentials_valid_on_target",
+        "heartbeat_intermittent", "target_hostname_resolves_to_unexpected_ip",
         "secret_stored_hostname", "resolved_ip", "target_os",
         "ntlm_disabled_on_target", "account_not_in_domain",
     ]),
@@ -489,8 +566,8 @@ def apply_preset(mode, preset_index):
         raise ValueError(f"Invalid preset index: {preset_index}")
 
     preset = presets[preset_index]
-    facts = dict(defaults)      
-    facts.update(preset["facts"]) 
+    facts = dict(defaults)
+    facts.update(preset["facts"])
     return facts
 
 
