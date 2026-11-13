@@ -612,11 +612,36 @@ def restart_chat():
     reset_chat(st.session_state.mode)
 
 
+def rules_for_evaluation(mode, allowed, answers):
+    """In-scope rules, plus any rule that reads a Not sure answer, directly or through
+    another rule. The engine then reports those rules as not considered instead of
+    dropping them silently."""
+    base = in_scope_rules(mode, allowed)
+    unknown = {k for k, v in answers.items() if v == UNKNOWN}
+    if not unknown:
+        return base
+
+    pool = [r for r in ALL_RULES if r["mode"] == mode and r["logic"] not in SYNTHESIS_LOGICS]
+    picked = {r["id"]: r for r in pool if set(fact_inputs(r)) & unknown}
+
+    changed = True
+    while changed:
+        changed = False
+        produced = {r["conclusion"][0] for r in picked.values()}
+        for r in pool:
+            if r["id"] not in picked and set(fact_inputs(r)) & produced:
+                picked[r["id"]] = r
+                changed = True
+
+    seen = {r["id"] for r in base}
+    return base + [r for r in picked.values() if r["id"] not in seen]
+
+
 def finish_chat():
     ss = st.session_state
     facts = build_facts(ss.answers)
     allowed = allowed_for(ss.mode)
-    ss.result = evaluate(in_scope_rules(ss.mode, allowed), facts, ss.mode)
+    ss.result = evaluate(rules_for_evaluation(ss.mode, allowed, ss.answers), facts, ss.mode)
     ss.result_facts = facts
     ss.skipped = skipped_report(ss.mode, ss.answers, allowed, ss.skipped_areas)
     ss.stage = "result"
@@ -860,17 +885,24 @@ def render_access_verdict(result, names, possible, nc_count, stop):
 
 
 def render_incident_verdict(result, trace, confirmed, possible, nc_count, mode):
+    ss = st.session_state
     dec = result["decision"] or {}
     severity = dec.get("severity", "info")
     primary_id = dec.get("primary_diagnosis_rule_id")
     primary = next((e for e in trace if e["rule_id"] == primary_id), None)
+    skipped = list(ss.skipped_areas or [])
+    scope_note = f"{', '.join(skipped)} skipped. " if skipped else ""
+    next_text = dec.get("next_step", "")
 
     if primary is None:
         severity = "info"
         if nc_count:
             headline = "NO CONFIRMED CAUSE"
-            lean = (f"No rule fired on the answers given, but {nc_count} check(s) were not considered "
-                    "because their questions were skipped or marked Not sure. Those checks are not ruled out.")
+            lean = (f"No rule fired on the answers given. {nc_count} check(s) were not considered "
+                    "because their questions were skipped or marked Not sure, so those checks are not ruled out.")
+            where = ", ".join(skipped) if skipped else "the unanswered areas"
+            next_text = (f"Answer the skipped or Not sure questions, or check {where} directly "
+                         "before relying on this result.")
         else:
             headline = "NO INCIDENT PATTERN MATCHED"
             lean = "No rule fired on the facts supplied. Areas that were skipped or not selected were not checked."
@@ -884,13 +916,13 @@ def render_incident_verdict(result, trace, confirmed, possible, nc_count, mode):
 
     st.markdown(
         f'<div class="banner severity-{severity}"><h2>{headline}</h2>'
-        f'<p>{len(confirmed)} confirmed · {len(possible)} possible · {nc_count} not considered</p></div>',
+        f'<p>{scope_note}{len(confirmed)} confirmed · {len(possible)} possible · {nc_count} not considered</p></div>',
         unsafe_allow_html=True,
     )
     st.markdown(f"**Why:** {lean}")
     if primary is not None and nc_count:
         st.caption(f"{nc_count} check(s) were not considered, so other causes in those areas are not ruled out.")
-    st.markdown(f"**Recommended next step:** {dec.get('next_step', '')}")
+    st.markdown(f"**Recommended next step:** {next_text}")
 
 
 def render_findings(confirmed, possible):
@@ -1352,8 +1384,7 @@ def render_about():
         "check. Read the decision, then the list of checks that were not run.\n\n"
         "**Incident Diagnostician.** Choose the areas that seem to be misbehaving. Answer the questions "
         "for each area, and skip any area you cannot check. Read the likely cause and the next step.\n\n"
-        "**Demo scenarios.** Each scenario loads a complete example and shows its result, with no "
-        "questions to answer."
+        "**Common scenarios.**"
     )
 
     st.markdown("### How to read a result")
